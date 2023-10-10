@@ -169,7 +169,11 @@ Here's an example implementation using Node.js and Express:
 
   Create an index.js file in the root of the folder and paste in the code below:
 
-  ```javascript
+{% codetabs %}
+
+{% codetab JavaScript %}
+  
+```javascript
   const express = require('express');
   const OpenAI = require('openai');
 
@@ -292,6 +296,100 @@ Here's an example implementation using Node.js and Express:
     console.log(`Server started on port ${PORT}\n`);
   });
 ```
+{% endcodetab %}
+
+{% codetab Python %}
+```python
+from flask import Flask, request, jsonify
+from openai import OpenAI
+import requests
+
+app = Flask(__name__)
+
+# Constants for server and external service configurations
+PORT = 4000
+OPEN_AI_KEY = 'YOUR-OPENAI-KEY'
+HASURA_GRAPHQL_ENDPOINT = 'YOUR-HASURA-GRAPHQL-ENDPOINT'
+HASURA_ADMIN_SECRET = 'YOUR-HASURA-ADMIN-SECRET'
+
+# Initialize OpenAI client with the provided API key
+openai = OpenAI(api_key=OPEN_AI_KEY)
+
+
+def improve_description(original_description):
+    completion = openai.ChatCompletion.create(
+        messages=[{
+            'role': 'user',
+            'content': f"You are an SEO expert who works on an e-commerce website. Your task is to take the following product description and improve it for SEO purposes, making it more likely to rank highly in search engines and lead to increased visitor traffic and purchases. Only respond with the improved description and nothing else. If there is nothing to improve then respond with the original content. The product description to improve for SEO is as follows: {original_description}"
+        }],
+        model='gpt-3.5-turbo',
+    )
+
+    return completion.choices[0].message.content
+
+
+def update_product_description(product_id, improved_description):
+    response = requests.post(
+        HASURA_GRAPHQL_ENDPOINT,
+        json={
+            'query': '''
+                mutation UpdateProduct($id: uuid!, $description: String) {
+                    update_products_by_pk(pk_columns: {id: $id}, _set: {description: $description}) {
+                        id
+                        description
+                    }
+                }
+            ''',
+            'variables': {
+                'id': product_id,
+                'description': improved_description,
+            },
+        },
+        headers={
+            'Content-Type': 'application/json',
+            'x-hasura-admin-secret': HASURA_ADMIN_SECRET,
+        },
+    )
+
+    return response.json()['data']['update_products_by_pk']['id']
+
+
+@app.route('/product-description-ai-seo', methods=['POST'])
+def product_description_ai_seo():
+    try:
+        # Check for the custom authorization header for security
+        auth_header = request.headers.get('secret-authorization-string')
+        if auth_header != 'super_secret_string_123':
+            return jsonify({'message': 'Unauthorized'}), 401
+
+        #ract description and id from the incoming request
+        description = request.json.get('event', {}).get('data', {}).get('new', {}).get('description')
+        product_id = request.json.get('event', {}).get('data', {}).get('new', {}).get('id')
+
+        # Ensure both description and id are present
+        if not description or not product_id:
+            return jsonify({'message': 'Bad request'}), 400
+
+        # Get the improved description from OpenAI
+        improved_description = improve_description(description)
+
+        # Update the product description in Hasura
+        updated_product_id = update_product_description(product_id, improved_description)
+
+        # Return a success response
+        return jsonify({'message': 'Success', 'product_id': updated_product_id}), 200
+    except Exception as e:
+        # Handle any errors
+        return jsonify({'message': 'Internal server error'}), 500
+
+
+if __name__ == '__main__':
+    app.run(port=PORT)
+```
+
+{% endcodetab %}
+
+{% endcodetabs %}
 
 </details>
 
